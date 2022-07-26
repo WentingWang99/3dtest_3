@@ -16,7 +16,18 @@ from sklearn.neighbors import KNeighborsClassifier
 from pygco import cut_from_graph
 import open3d as o3d
 import json
+import glob
 
+
+class NpEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj,np.integer):
+            return int(obj)
+        if isinstance(obj,np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super(NpEncoder,self).default(obj)
 
 # 复制数据
 def clone_runoob(li1):
@@ -108,27 +119,35 @@ def remove_outlier(points, labels):
     return labels
 
 
+def write_output(labels, instances, jaw):
+    pred_output = {
+        'id_patient': "",
+        'jaw': jaw,
+        'labels': labels,
+        'instances': instances
+    }
+    with open('./output/dental-labels.json', 'w') as fp:
+        json.dump(pred_output, fp, cls=NpEncoder)
+
+
+
 # 消除离群点，保存最后的输出
 def remove_outlier_main(jaw, pcd_points, labels, instances_labels):
-    # point_cloud_o3d_orign = o3d.io.read_point_cloud('E:/tooth/data/MeshSegNet-master/test_upsample_15/upsample_01K17AN8_upper_refined.pcd')
-    # 原始点
     points = pcd_points.copy()
     label = remove_outlier(points, labels)
+    write_output(label,instances_labels,jaw)
 
-    # 保存json文件
-    label_dict = {}
-    label_dict["id_patient"] = ""
-    label_dict["jaw"] = jaw
-    label_dict["labels"] = label.tolist()
-    label_dict["instances"] = instances_labels.tolist()
-    b = json.dumps(label_dict)
-    with open('/output/dental-labels.json', 'w') as fp:
-        json.dump(pred_output, fp, cls=NpEncoder)
-    f_obj.close()
-    
-
-
-same_points_list = {}
+    # # 保存json文件
+    # label_dict = {}
+    # label_dict["id_patient"] = ""
+    # label_dict["jaw"] = jaw
+    # label_dict["labels"] = label.tolist()
+    # label_dict["instances"] = instances_labels.tolist()
+    # b = json.dumps(label_dict)
+    # with open(os.path.join(save_path, 'dental-labels' + '.json'), 'w') as f_obj:
+    #     f_obj.write(b)
+    # f_obj.close()
+    # print('done')
 
 
 # 体素下采样
@@ -468,26 +487,24 @@ def obj2pcd(obj_path):
 
 
 def load_input(input_dir):
-        """
-        Read from /input/
-        Check https://grand-challenge.org/algorithms/interfaces/
-        """
+    """
+    Read from /input/
+    Check https://grand-challenge.org/algorithms/interfaces/
+    """
 
-        # iterate over files in input_dir, assuming only 1 file available
-        inputs = glob.glob(f'{input_dir}/*.obj')
-        print("scan to process:", inputs)
-        return inputs
-        
-        
+    # iterate over files in input_dir, assuming only 1 file available
+    inputs = glob.glob(f'{input_dir}/*.obj')
+    print("scan to process:", inputs)
+    return inputs
+
 if __name__ == '__main__':
-    #obj_path = "./input/3d-teeth-scan.obj"
-    obj_path = load_input(input_dir='./input')
-    # ground_truth_path = './tooth_ground-truth_labels/0132CR0A/0132CR0A_lower.json'
-    save_path = './output'
+    # obj_path = "./input/3d-teeth-scan.obj"
+    # # ground_truth_path = './tooth_ground-truth_labels/0132CR0A/0132CR0A_lower.json'
+    # save_path = './output'
     # gpu_id = utils.get_avail_gpu()
     # gpu_id = 0
     # torch.cuda.set_device(gpu_id) # assign which gpu will be used (only linux works)
-
+    obj_path = load_input(input_dir='./input')
     # upsampling_method = 'SVM'
     upsampling_method = 'KNN'
 
@@ -523,7 +540,7 @@ if __name__ == '__main__':
     # Predicting
     model.eval()
     with torch.no_grad():
-        pcd_points, jaw = obj2pcd(obj_path)
+        pcd_points, jaw = obj2pcd(obj_path[0])
         mesh = mesh_grid(pcd_points)
 
         # move mesh to origin
