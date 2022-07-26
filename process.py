@@ -126,7 +126,7 @@ def write_output(labels, instances, jaw):
         'labels': labels,
         'instances': instances
     }
-    with open('./output/dental-labels.json', 'w') as fp:
+    with open('/output/dental-labels.json', 'w') as fp:
         json.dump(pred_output, fp, cls=NpEncoder)
 
 
@@ -504,7 +504,7 @@ if __name__ == '__main__':
     # gpu_id = utils.get_avail_gpu()
     # gpu_id = 0
     # torch.cuda.set_device(gpu_id) # assign which gpu will be used (only linux works)
-    obj_path = load_input(input_dir='./input')
+    obj_path = load_input(input_dir='/input')
     # upsampling_method = 'SVM'
     upsampling_method = 'KNN'
 
