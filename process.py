@@ -122,10 +122,10 @@ def remove_outlier_main(jaw, pcd_points, labels, instances_labels):
     label_dict["labels"] = label.tolist()
     label_dict["instances"] = instances_labels.tolist()
     b = json.dumps(label_dict)
-    with open(os.path.join(save_path, 'dental-labels' + '.json'), 'w') as f_obj:
-        f_obj.write(b)
+    with open('/output/dental-labels.json', 'w') as fp:
+        json.dump(pred_output, fp, cls=NpEncoder)
     f_obj.close()
-    print('done')
+    
 
 
 same_points_list = {}
@@ -467,8 +467,21 @@ def obj2pcd(obj_path):
     return pcd_points, jaw
 
 
+def load_input(input_dir):
+        """
+        Read from /input/
+        Check https://grand-challenge.org/algorithms/interfaces/
+        """
+
+        # iterate over files in input_dir, assuming only 1 file available
+        inputs = glob.glob(f'{input_dir}/*.obj')
+        print("scan to process:", inputs)
+        return inputs
+        
+        
 if __name__ == '__main__':
-    obj_path = "./input/3d-teeth-scan.obj"
+    #obj_path = "./input/3d-teeth-scan.obj"
+    obj_path = load_input(input_dir='./input')
     # ground_truth_path = './tooth_ground-truth_labels/0132CR0A/0132CR0A_lower.json'
     save_path = './output'
     # gpu_id = utils.get_avail_gpu()
