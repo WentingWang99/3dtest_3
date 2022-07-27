@@ -671,7 +671,6 @@ def main(obj_path, model_path):
         #     f_obj.write(json_str)
 
 if __name__ == '__main__':
-    obj_paths = load_input(input_dir='/input')
+    obj_path = load_input(input_dir='/input/')[0]
     model_path = './Mesh_Segementation_MeshSegNet_17_classes_60samples_best.tar'
-    for obj_path in obj_paths:
-        main(obj_path, model_path)
+    main(obj_path, model_path)
