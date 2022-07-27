@@ -28,7 +28,7 @@ docker run --rm \
 docker run --rm \
         -v $PWD/output/:/opt/algorithm/output/ \
         -v $PWD/test/:/opt/algorithm/input/ \
-        python:3.8 python3 -c "import json, sys;f1 = json.load(open('/opt/algorithm/output/dental-labels.json'));f2 = json.load(open('/opt/algorithm/input/expected_output.json'));sys.exit(f1== f2)"
+        python:3.8 python3 -c "import json, sys;f1 = json.load(open('/output/dental-labels.json'));f2 = json.load(open('/input/expected_output.json'));sys.exit(f1== f2)"
 
 
 
