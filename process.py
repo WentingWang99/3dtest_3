@@ -126,7 +126,7 @@ def write_output(labels, instances, jaw):
         'labels': labels,
         'instances': instances
     }
-    with open('./output/dental-labels.json', 'w') as fp:
+    with open('/output/dental-labels.json', 'w') as fp:
         json.dump(pred_output, fp, cls=NpEncoder)
 
 
