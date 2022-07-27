@@ -258,7 +258,7 @@ def voxel_upsample(same_points_list, point_cloud, filtered_points, filter_labels
     Dx = (x_max - x_min) // size_r + 1
     Dy = (y_max - y_min) // size_r + 1
     Dz = (z_max - z_min) // size_r + 1
-    print("Dx x Dy x Dz is {} x {} x {}".format(Dx, Dy, Dz))
+    # print("Dx x Dy x Dz is {} x {} x {}".format(Dx, Dy, Dz))
 
     # step4 计算每个点（采样后的点）在volex grid内每一个维度的值
     h = list()
@@ -504,7 +504,7 @@ if __name__ == '__main__':
     # gpu_id = utils.get_avail_gpu()
     # gpu_id = 0
     # torch.cuda.set_device(gpu_id) # assign which gpu will be used (only linux works)
-    obj_path = load_input(input_dir='./input')
+    obj_paths = load_input(input_dir='./input')
     # upsampling_method = 'SVM'
     upsampling_method = 'KNN'
 
@@ -540,137 +540,138 @@ if __name__ == '__main__':
     # Predicting
     model.eval()
     with torch.no_grad():
-        pcd_points, jaw = obj2pcd(obj_path[0])
-        mesh = mesh_grid(pcd_points)
+       for obj_path in obj_paths:
+            pcd_points, jaw = obj2pcd(obj_path)
+            mesh = mesh_grid(pcd_points)
 
-        # move mesh to origin
-        print('\tPredicting...')
+            # move mesh to origin
+            print('\tPredicting...')
 
-        vertices_points = np.asarray(mesh.vertices)
-        triangles_points = np.asarray(mesh.triangles)
-        N = triangles_points.shape[0]
-        cells = np.zeros((triangles_points.shape[0], 9))
-        cells = vertices_points[triangles_points].reshape(triangles_points.shape[0], 9)
+            vertices_points = np.asarray(mesh.vertices)
+            triangles_points = np.asarray(mesh.triangles)
+            N = triangles_points.shape[0]
+            cells = np.zeros((triangles_points.shape[0], 9))
+            cells = vertices_points[triangles_points].reshape(triangles_points.shape[0], 9)
 
-        mean_cell_centers = mesh.get_center()
-        cells[:, 0:3] -= mean_cell_centers[0:3]
-        cells[:, 3:6] -= mean_cell_centers[0:3]
-        cells[:, 6:9] -= mean_cell_centers[0:3]
+            mean_cell_centers = mesh.get_center()
+            cells[:, 0:3] -= mean_cell_centers[0:3]
+            cells[:, 3:6] -= mean_cell_centers[0:3]
+            cells[:, 6:9] -= mean_cell_centers[0:3]
 
-        v1 = np.zeros([triangles_points.shape[0], 3], dtype='float32')
-        v2 = np.zeros([triangles_points.shape[0], 3], dtype='float32')
-        v1[:, 0] = cells[:, 0] - cells[:, 3]
-        v1[:, 1] = cells[:, 1] - cells[:, 4]
-        v1[:, 2] = cells[:, 2] - cells[:, 5]
-        v2[:, 0] = cells[:, 3] - cells[:, 6]
-        v2[:, 1] = cells[:, 4] - cells[:, 7]
-        v2[:, 2] = cells[:, 5] - cells[:, 8]
-        mesh_normals = np.cross(v1, v2)
-        mesh_normal_length = np.linalg.norm(mesh_normals, axis=1)
-        mesh_normals[:, 0] /= mesh_normal_length[:]
-        mesh_normals[:, 1] /= mesh_normal_length[:]
-        mesh_normals[:, 2] /= mesh_normal_length[:]
+            v1 = np.zeros([triangles_points.shape[0], 3], dtype='float32')
+            v2 = np.zeros([triangles_points.shape[0], 3], dtype='float32')
+            v1[:, 0] = cells[:, 0] - cells[:, 3]
+            v1[:, 1] = cells[:, 1] - cells[:, 4]
+            v1[:, 2] = cells[:, 2] - cells[:, 5]
+            v2[:, 0] = cells[:, 3] - cells[:, 6]
+            v2[:, 1] = cells[:, 4] - cells[:, 7]
+            v2[:, 2] = cells[:, 5] - cells[:, 8]
+            mesh_normals = np.cross(v1, v2)
+            mesh_normal_length = np.linalg.norm(mesh_normals, axis=1)
+            mesh_normals[:, 0] /= mesh_normal_length[:]
+            mesh_normals[:, 1] /= mesh_normal_length[:]
+            mesh_normals[:, 2] /= mesh_normal_length[:]
 
-        # prepare input
-        # points = mesh.points().copy()
-        points = vertices_points.copy()
-        points[:, 0:3] -= mean_cell_centers[0:3]
-        normals = np.nan_to_num(mesh_normals).copy()
-        barycenters = np.zeros((triangles_points.shape[0], 3))
-        s = np.sum(vertices_points[triangles_points], 1)
-        barycenters = 1 / 3 * s
-        center_points = barycenters.copy()
-        # np.save(os.path.join(output_path, name + '.npy'), barycenters)
-        barycenters -= mean_cell_centers[0:3]
+            # prepare input
+            # points = mesh.points().copy()
+            points = vertices_points.copy()
+            points[:, 0:3] -= mean_cell_centers[0:3]
+            normals = np.nan_to_num(mesh_normals).copy()
+            barycenters = np.zeros((triangles_points.shape[0], 3))
+            s = np.sum(vertices_points[triangles_points], 1)
+            barycenters = 1 / 3 * s
+            center_points = barycenters.copy()
+            # np.save(os.path.join(output_path, name + '.npy'), barycenters)
+            barycenters -= mean_cell_centers[0:3]
 
-        # normalized data
-        maxs = points.max(axis=0)
-        mins = points.min(axis=0)
-        means = points.mean(axis=0)
-        stds = points.std(axis=0)
-        nmeans = normals.mean(axis=0)
-        nstds = normals.std(axis=0)
+            # normalized data
+            maxs = points.max(axis=0)
+            mins = points.min(axis=0)
+            means = points.mean(axis=0)
+            stds = points.std(axis=0)
+            nmeans = normals.mean(axis=0)
+            nstds = normals.std(axis=0)
 
-        for i in range(3):
-            cells[:, i] = (cells[:, i] - means[i]) / stds[i]  # point 1
-            cells[:, i + 3] = (cells[:, i + 3] - means[i]) / stds[i]  # point 2
-            cells[:, i + 6] = (cells[:, i + 6] - means[i]) / stds[i]  # point 3
-            barycenters[:, i] = (barycenters[:, i] - mins[i]) / (maxs[i] - mins[i])
-            normals[:, i] = (normals[:, i] - nmeans[i]) / nstds[i]
+            for i in range(3):
+                cells[:, i] = (cells[:, i] - means[i]) / stds[i]  # point 1
+                cells[:, i + 3] = (cells[:, i + 3] - means[i]) / stds[i]  # point 2
+                cells[:, i + 6] = (cells[:, i + 6] - means[i]) / stds[i]  # point 3
+                barycenters[:, i] = (barycenters[:, i] - mins[i]) / (maxs[i] - mins[i])
+                normals[:, i] = (normals[:, i] - nmeans[i]) / nstds[i]
 
-        X = np.column_stack((cells, barycenters, normals))
+            X = np.column_stack((cells, barycenters, normals))
 
-        # computing A_S and A_L
-        A_S = np.zeros([X.shape[0], X.shape[0]], dtype='float32')
-        A_L = np.zeros([X.shape[0], X.shape[0]], dtype='float32')
-        D = distance_matrix(X[:, 9:12], X[:, 9:12])
-        A_S[D < 0.1] = 1.0
-        A_S = A_S / np.dot(np.sum(A_S, axis=1, keepdims=True), np.ones((1, X.shape[0])))
+            # computing A_S and A_L
+            A_S = np.zeros([X.shape[0], X.shape[0]], dtype='float32')
+            A_L = np.zeros([X.shape[0], X.shape[0]], dtype='float32')
+            D = distance_matrix(X[:, 9:12], X[:, 9:12])
+            A_S[D < 0.1] = 1.0
+            A_S = A_S / np.dot(np.sum(A_S, axis=1, keepdims=True), np.ones((1, X.shape[0])))
 
-        A_L[D < 0.2] = 1.0
-        A_L = A_L / np.dot(np.sum(A_L, axis=1, keepdims=True), np.ones((1, X.shape[0])))
+            A_L[D < 0.2] = 1.0
+            A_L = A_L / np.dot(np.sum(A_L, axis=1, keepdims=True), np.ones((1, X.shape[0])))
 
-        # numpy -> torch.tensor
-        X = X.transpose(1, 0)
-        X = X.reshape([1, X.shape[0], X.shape[1]])
-        X = torch.from_numpy(X).to(device, dtype=torch.float)
-        A_S = A_S.reshape([1, A_S.shape[0], A_S.shape[1]])
-        A_L = A_L.reshape([1, A_L.shape[0], A_L.shape[1]])
-        A_S = torch.from_numpy(A_S).to(device, dtype=torch.float)
-        A_L = torch.from_numpy(A_L).to(device, dtype=torch.float)
+            # numpy -> torch.tensor
+            X = X.transpose(1, 0)
+            X = X.reshape([1, X.shape[0], X.shape[1]])
+            X = torch.from_numpy(X).to(device, dtype=torch.float)
+            A_S = A_S.reshape([1, A_S.shape[0], A_S.shape[1]])
+            A_L = A_L.reshape([1, A_L.shape[0], A_L.shape[1]])
+            A_S = torch.from_numpy(A_S).to(device, dtype=torch.float)
+            A_L = torch.from_numpy(A_L).to(device, dtype=torch.float)
 
-        tensor_prob_output = model(X, A_S, A_L).to(device, dtype=torch.float)
-        patch_prob_output = tensor_prob_output.cpu().numpy()
+            tensor_prob_output = model(X, A_S, A_L).to(device, dtype=torch.float)
+            patch_prob_output = tensor_prob_output.cpu().numpy()
 
-        # refinement
-        print('\tRefining by pygco...')
-        round_factor = 100
-        patch_prob_output[patch_prob_output < 1.0e-6] = 1.0e-6
+            # refinement
+            print('\tRefining by pygco...')
+            round_factor = 100
+            patch_prob_output[patch_prob_output < 1.0e-6] = 1.0e-6
 
-        # unaries
-        unaries = -round_factor * np.log10(patch_prob_output)
-        unaries = unaries.astype(np.int32)
-        unaries = unaries.reshape(-1, num_classes)
+            # unaries
+            unaries = -round_factor * np.log10(patch_prob_output)
+            unaries = unaries.astype(np.int32)
+            unaries = unaries.reshape(-1, num_classes)
 
-        # parawise
-        pairwise = (1 - np.eye(num_classes, dtype=np.int32))
+            # parawise
+            pairwise = (1 - np.eye(num_classes, dtype=np.int32))
 
-        cells = cells.copy()
+            cells = cells.copy()
 
-        cell_ids = np.asarray(triangles_points)
+            cell_ids = np.asarray(triangles_points)
 
-        lambda_c = 20
-        edges = np.empty([1, 3], order='C')
-        for i_node in range(cells.shape[0]):
-            # Find neighbors
-            nei = np.sum(np.isin(cell_ids, cell_ids[i_node, :]), axis=1)
-            nei_id = np.where(nei == 2)
-            for i_nei in nei_id[0][:]:
-                if i_node < i_nei:
-                    cos_theta = np.dot(normals[i_node, 0:3], normals[i_nei, 0:3]) / np.linalg.norm(
-                        normals[i_node, 0:3]) / np.linalg.norm(normals[i_nei, 0:3])
-                    if cos_theta >= 1.0:
-                        cos_theta = 0.9999
-                    theta = np.arccos(cos_theta)
-                    phi = np.linalg.norm(barycenters[i_node, :] - barycenters[i_nei, :])
-                    if theta > np.pi / 2.0:
-                        edges = np.concatenate(
-                            (edges, np.array([i_node, i_nei, -np.log10(theta / np.pi) * phi]).reshape(1, 3)), axis=0)
-                    else:
-                        beta = 1 + np.linalg.norm(np.dot(normals[i_node, 0:3], normals[i_nei, 0:3]))
-                        edges = np.concatenate(
-                            (edges, np.array([i_node, i_nei, -beta * np.log10(theta / np.pi) * phi]).reshape(1, 3)),
-                            axis=0)
-        edges = np.delete(edges, 0, 0)
-        edges[:, 2] *= lambda_c * round_factor
-        edges = edges.astype(np.int32)
+            lambda_c = 20
+            edges = np.empty([1, 3], order='C')
+            for i_node in range(cells.shape[0]):
+                # Find neighbors
+                nei = np.sum(np.isin(cell_ids, cell_ids[i_node, :]), axis=1)
+                nei_id = np.where(nei == 2)
+                for i_nei in nei_id[0][:]:
+                    if i_node < i_nei:
+                        cos_theta = np.dot(normals[i_node, 0:3], normals[i_nei, 0:3]) / np.linalg.norm(
+                            normals[i_node, 0:3]) / np.linalg.norm(normals[i_nei, 0:3])
+                        if cos_theta >= 1.0:
+                            cos_theta = 0.9999
+                        theta = np.arccos(cos_theta)
+                        phi = np.linalg.norm(barycenters[i_node, :] - barycenters[i_nei, :])
+                        if theta > np.pi / 2.0:
+                            edges = np.concatenate(
+                                (edges, np.array([i_node, i_nei, -np.log10(theta / np.pi) * phi]).reshape(1, 3)), axis=0)
+                        else:
+                            beta = 1 + np.linalg.norm(np.dot(normals[i_node, 0:3], normals[i_nei, 0:3]))
+                            edges = np.concatenate(
+                                (edges, np.array([i_node, i_nei, -beta * np.log10(theta / np.pi) * phi]).reshape(1, 3)),
+                                axis=0)
+            edges = np.delete(edges, 0, 0)
+            edges[:, 2] *= lambda_c * round_factor
+            edges = edges.astype(np.int32)
 
-        refine_labels = cut_from_graph(edges, unaries, pairwise)
-        refine_labels = refine_labels.reshape([-1, 1])
+            refine_labels = cut_from_graph(edges, unaries, pairwise)
+            refine_labels = refine_labels.reshape([-1, 1])
 
-        predicted_labels_3 = refine_labels.reshape(refine_labels.shape[0])
-        mesh_to_points_main(jaw, pcd_points, center_points, predicted_labels_3)
-        # direction["labels"] = (predicted_labels_3.astype(np.int)).tolist()
-        # json_str = json.dumps(direction)
-        # with open(os.path.join(output_path, name + '_refined.json'), 'w') as f_obj:
-        #     f_obj.write(json_str)
+            predicted_labels_3 = refine_labels.reshape(refine_labels.shape[0])
+            mesh_to_points_main(jaw, pcd_points, center_points, predicted_labels_3)
+            # direction["labels"] = (predicted_labels_3.astype(np.int)).tolist()
+            # json_str = json.dumps(direction)
+            # with open(os.path.join(output_path, name + '_refined.json'), 'w') as f_obj:
+            #     f_obj.write(json_str)
