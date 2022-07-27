@@ -593,17 +593,17 @@ def main(obj_path, model_path):
             barycenters[:, i] = (barycenters[:, i] - mins[i]) / (maxs[i] - mins[i])
             normals[:, i] = (normals[:, i] - nmeans[i]) / nstds[i]
 
-        X = np.column_stack((cells, barycenters, normals))
+        X = np.column_stack((cells, barycenters, normals)).astype(np.float32)
 
         # computing A_S and A_L
         A_S = np.zeros([X.shape[0], X.shape[0]], dtype='float32')
         A_L = np.zeros([X.shape[0], X.shape[0]], dtype='float32')
         D = distance_matrix(X[:, 9:12], X[:, 9:12])
         A_S[D < 0.1] = 1.0
-        A_S = A_S / np.dot(np.sum(A_S, axis=1, keepdims=True), np.ones((1, X.shape[0])))
+        A_S = A_S / np.dot(np.sum(A_S, axis=1, keepdims=True), np.ones((1, X.shape[0]))).astype(np.float32)
 
         A_L[D < 0.2] = 1.0
-        A_L = A_L / np.dot(np.sum(A_L, axis=1, keepdims=True), np.ones((1, X.shape[0])))
+        A_L = A_L / np.dot(np.sum(A_L, axis=1, keepdims=True), np.ones((1, X.shape[0]))).astype(np.float32)
 
         # numpy -> torch.tensor
         X = X.transpose(1, 0)
