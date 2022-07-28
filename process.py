@@ -17,6 +17,7 @@ from pygco import cut_from_graph
 import open3d as o3d
 import json
 import glob
+import traceback
 
 
 class NpEncoder(json.JSONEncoder):
@@ -126,7 +127,7 @@ def write_output(labels, instances, jaw):
         'labels': labels,
         'instances': instances
     }
-    #os.makedirs('/output/', exist_ok=True)
+    # os.makedirs('/output/', exist_ok=True)
     with open('/output/dental-labels.json', 'w') as fp:
         json.dump(pred_output, fp, cls=NpEncoder)
 
@@ -447,8 +448,25 @@ def mesh_grid(pcd_points):
     return mesh
 
 
+def get_jaw(scan_path):
+    try:
+        _, jaw = os.path.basename(scan_path).split('.')[0].split('_')
+
+    except:
+        try:
+            with open(scan_path, 'r') as f:
+                jaw = f.readline()[2:-1]
+            if jaw not in ["upper", "lower"]:
+                return None
+        except Exception as e:
+            print(str(e))
+            print(traceback.format_exc())
+            return None
+    return jaw
+
 # 读取obj文件内容
 def read_obj(obj_path):
+    jaw = get_jaw(obj_path)
     with open(obj_path) as file:
         points = []
         faces = []
@@ -461,10 +479,10 @@ def read_obj(obj_path):
                 points.append((float(strs[1]), float(strs[2]), float(strs[3])))
             elif strs[0] == "f":
                 faces.append((int(strs[1]), int(strs[2]), int(strs[3])))
-            elif strs[1][0:5] == 'lower':
-                jaw = 'lower'
-            elif strs[1][0:5] == 'upper':
-                jaw = 'upper'
+            # elif strs[1][0:5] == 'lower':
+            #     jaw = 'lower'
+            # elif strs[1][0:5] == 'upper':
+            #     jaw = 'upper'
 
     points = np.array(points)
     faces = np.array(faces)
@@ -538,15 +556,15 @@ def main(obj_path):
     with torch.no_grad():
         pcd_points, jaw = obj2pcd(obj_path)
         mesh = mesh_grid(pcd_points)
-        torch.cuda.empty_cache()
+
 
         # move mesh to origin
         print('\tPredicting...')
-
+        torch.cuda.empty_cache()
         vertices_points = np.asarray(mesh.vertices)
         triangles_points = np.asarray(mesh.triangles)
-        N = triangles_points.shape[0]
-        cells = np.zeros((triangles_points.shape[0], 9))
+        # N = triangles_points.shape[0]
+        # cells = np.zeros((triangles_points.shape[0], 9))
         cells = vertices_points[triangles_points].reshape(triangles_points.shape[0], 9)
 
         mean_cell_centers = mesh.get_center()
@@ -595,17 +613,33 @@ def main(obj_path):
             barycenters[:, i] = (barycenters[:, i] - mins[i]) / (maxs[i] - mins[i])
             normals[:, i] = (normals[:, i] - nmeans[i]) / nstds[i]
 
+        del maxs
+        del mins
+        del means
+        del stds
+        del nmeans
+        del nstds
+
         X = np.column_stack((cells, barycenters, normals))
 
         # computing A_S and A_L
         A_S = np.zeros([X.shape[0], X.shape[0]], dtype='float32')
         A_L = np.zeros([X.shape[0], X.shape[0]], dtype='float32')
         D = distance_matrix(X[:, 9:12], X[:, 9:12])
-        A_S[D < 0.1] = 1.0
-        A_S = A_S / np.dot(np.sum(A_S, axis=1, keepdims=True), np.ones((1, X.shape[0])))
 
+        A_S[D < 0.1] = 1.0
         A_L[D < 0.2] = 1.0
-        A_L = A_L / np.dot(np.sum(A_L, axis=1, keepdims=True), np.ones((1, X.shape[0])))
+        del D
+        # for i in range(0, D.shape[0]):
+        #     for j in range(0,D.shape[1]):
+        #         if(D[,j] < 0.1):
+        #             A_S[i,j] = 1.0
+        #A_S = A_S / np.dot(np.sum(A_S, axis=1, keepdims=True), np.ones((1, X.shape[0])))
+        A_S = np.divide(A_S, np.tile(np.sum(A_S, axis=1, keepdims=True), X.shape[0]))
+
+
+        #A_L = A_L / np.dot(np.sum(A_L, axis=1, keepdims=True), np.ones((1, X.shape[0])))
+        A_L = np.divide(A_L, np.tile(np.sum(A_L, axis=1, keepdims=True), X.shape[0]))
 
         # numpy -> torch.tensor
         X = X.transpose(1, 0)
