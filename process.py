@@ -633,10 +633,9 @@ def main(obj_path):
         X = np.column_stack((cells, barycenters, normals))
 
         # computing A_S and A_L
-        A_S = np.zeros([X.shape[0], X.shape[0]], dtype='float32')
-        A_L = np.zeros([X.shape[0], X.shape[0]], dtype='float32')
+        A_S = np.zeros([X.shape[0], X.shape[0]], dtype='float16')
+        A_L = np.zeros([X.shape[0], X.shape[0]], dtype='float16')
         D = distance_matrix(X[:, 9:12], X[:, 9:12])
-        D = np.copy(D)
 
         A_S[D < 0.1] = 1.0
         A_L[D < 0.2] = 1.0
