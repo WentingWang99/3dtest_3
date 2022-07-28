@@ -5,7 +5,7 @@ import torch.nn as nn
 from meshsegnet import *
 from sklearn import neighbors
 import pandas as pd
-from losses_and_metrics_for_mesh import *
+#from losses_and_metrics_for_mesh import *
 from scipy.spatial import distance_matrix
 import scipy.io as sio
 import shutil
@@ -126,6 +126,7 @@ def write_output(labels, instances, jaw):
         'labels': labels,
         'instances': instances
     }
+    #os.makedirs('/output/', exist_ok=True)
     with open('/output/dental-labels.json', 'w') as fp:
         json.dump(pred_output, fp, cls=NpEncoder)
 
@@ -497,7 +498,7 @@ def load_input(input_dir):
     print("scan to process:", inputs)
     return inputs
 
-def main(obj_path, model_path):
+def main(obj_path):
     # obj_path = "./input/3d-teeth-scan.obj"
     # # ground_truth_path = './tooth_ground-truth_labels/0132CR0A/0132CR0A_lower.json'
     # save_path = './output'
@@ -514,29 +515,30 @@ def main(obj_path, model_path):
     # if not os.path.exists(output_path):
     #     os.mkdir(output_path)
 
-    num_classes = 17
-    num_channels = 15
-
-    # set model
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = MeshSegNet(num_classes=num_classes, num_channels=num_channels).to(device, dtype=torch.float)
-
-    # load trained model
-    # checkpoint = torch.load(os.path.join(model_path, model_name), map_location='cpu')
-    checkpoint = torch.load(model_path, map_location='cpu')
-    model.load_state_dict(checkpoint['model_state_dict'])
-    del checkpoint
-    model = model.to(device, dtype=torch.float)
-
-    # cudnn
-    torch.backends.cudnn.benchmark = True
-    torch.backends.cudnn.enabled = True
+    # num_classes = 17
+    # num_channels = 15
+    #
+    # # set model
+    # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # model = MeshSegNet(num_classes=num_classes, num_channels=num_channels).to(device, dtype=torch.float)
+    #
+    # # load trained model
+    # # checkpoint = torch.load(os.path.join(model_path, model_name), map_location='cpu')
+    # checkpoint = torch.load(model_path, map_location='cpu')
+    # model.load_state_dict(checkpoint['model_state_dict'])
+    # del checkpoint
+    # model = model.to(device, dtype=torch.float)
+    #
+    # # cudnn
+    # torch.backends.cudnn.benchmark = True
+    # torch.backends.cudnn.enabled = True
 
     # Predicting
-    model.eval()
+
     with torch.no_grad():
         pcd_points, jaw = obj2pcd(obj_path)
         mesh = mesh_grid(pcd_points)
+        torch.cuda.empty_cache()
 
         # move mesh to origin
         print('\tPredicting...')
@@ -616,6 +618,7 @@ def main(obj_path, model_path):
 
         tensor_prob_output = model(X, A_S, A_L).to(device, dtype=torch.float)
         patch_prob_output = tensor_prob_output.cpu().numpy()
+        torch.cuda.empty_cache()
 
         # refinement
         print('\tRefining by pygco...')
@@ -671,7 +674,25 @@ def main(obj_path, model_path):
         #     f_obj.write(json_str)
 
 if __name__ == '__main__':
-    obj_paths = load_input(input_dir='/input')
+    obj_paths = load_input(input_dir='/input/')
     model_path = './Mesh_Segementation_MeshSegNet_17_classes_60samples_best.tar'
+    num_classes = 17
+    num_channels = 15
+
+    # set model
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = MeshSegNet(num_classes=num_classes, num_channels=num_channels).to(device, dtype=torch.float)
+
+    # load trained model
+    # checkpoint = torch.load(os.path.join(model_path, model_name), map_location='cpu')
+    checkpoint = torch.load(model_path, map_location='cpu')
+    model.load_state_dict(checkpoint['model_state_dict'])
+    del checkpoint
+    model = model.to(device, dtype=torch.float)
+
+    # cudnn
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.enabled = True
+    model.eval()
     for obj_path in obj_paths:
-        main(obj_path, model_path)
+        main(obj_path)
