@@ -18,6 +18,7 @@ import open3d as o3d
 import json
 import glob
 import traceback
+import gc
 
 
 class NpEncoder(json.JSONEncoder):
@@ -127,8 +128,8 @@ def write_output(labels, instances, jaw):
         'labels': labels,
         'instances': instances
     }
-    # os.makedirs('/output/', exist_ok=True)
-    with open('/output/dental-labels.json', 'w') as fp:
+    os.makedirs('./output/', exist_ok=True)
+    with open('./output/dental-labels.json', 'w') as fp:
         json.dump(pred_output, fp, cls=NpEncoder)
 
 
@@ -553,14 +554,14 @@ def main(obj_path):
 
     # Predicting
 
+    torch.cuda.empty_cache()
     with torch.no_grad():
         pcd_points, jaw = obj2pcd(obj_path)
         mesh = mesh_grid(pcd_points)
 
-
         # move mesh to origin
         print('\tPredicting...')
-        torch.cuda.empty_cache()
+
         vertices_points = np.asarray(mesh.vertices)
         triangles_points = np.asarray(mesh.triangles)
         # N = triangles_points.shape[0]
@@ -568,6 +569,7 @@ def main(obj_path):
         cells = vertices_points[triangles_points].reshape(triangles_points.shape[0], 9)
 
         mean_cell_centers = mesh.get_center()
+        del mesh
         cells[:, 0:3] -= mean_cell_centers[0:3]
         cells[:, 3:6] -= mean_cell_centers[0:3]
         cells[:, 6:9] -= mean_cell_centers[0:3]
@@ -581,6 +583,9 @@ def main(obj_path):
         v2[:, 1] = cells[:, 4] - cells[:, 7]
         v2[:, 2] = cells[:, 5] - cells[:, 8]
         mesh_normals = np.cross(v1, v2)
+
+        del v1
+        del v2
         mesh_normal_length = np.linalg.norm(mesh_normals, axis=1)
         mesh_normals[:, 0] /= mesh_normal_length[:]
         mesh_normals[:, 1] /= mesh_normal_length[:]
@@ -591,12 +596,16 @@ def main(obj_path):
         points = vertices_points.copy()
         points[:, 0:3] -= mean_cell_centers[0:3]
         normals = np.nan_to_num(mesh_normals).copy()
+        del mesh_normals
         barycenters = np.zeros((triangles_points.shape[0], 3))
         s = np.sum(vertices_points[triangles_points], 1)
+        del vertices_points
         barycenters = 1 / 3 * s
+        del s
         center_points = barycenters.copy()
         # np.save(os.path.join(output_path, name + '.npy'), barycenters)
         barycenters -= mean_cell_centers[0:3]
+        del mean_cell_centers
 
         # normalized data
         maxs = points.max(axis=0)
@@ -605,6 +614,7 @@ def main(obj_path):
         stds = points.std(axis=0)
         nmeans = normals.mean(axis=0)
         nstds = normals.std(axis=0)
+        del points
 
         for i in range(3):
             cells[:, i] = (cells[:, i] - means[i]) / stds[i]  # point 1
@@ -626,6 +636,7 @@ def main(obj_path):
         A_S = np.zeros([X.shape[0], X.shape[0]], dtype='float32')
         A_L = np.zeros([X.shape[0], X.shape[0]], dtype='float32')
         D = distance_matrix(X[:, 9:12], X[:, 9:12])
+        D = np.copy(D)
 
         A_S[D < 0.1] = 1.0
         A_L[D < 0.2] = 1.0
@@ -651,6 +662,9 @@ def main(obj_path):
         A_L = torch.from_numpy(A_L).to(device, dtype=torch.float)
 
         tensor_prob_output = model(X, A_S, A_L).to(device, dtype=torch.float)
+        del A_L
+        del A_S
+        del X
         patch_prob_output = tensor_prob_output.cpu().numpy()
         torch.cuda.empty_cache()
 
@@ -661,6 +675,7 @@ def main(obj_path):
 
         # unaries
         unaries = -round_factor * np.log10(patch_prob_output)
+        del patch_prob_output
         unaries = unaries.astype(np.int32)
         unaries = unaries.reshape(-1, num_classes)
 
@@ -670,6 +685,7 @@ def main(obj_path):
         cells = cells.copy()
 
         cell_ids = np.asarray(triangles_points)
+        del triangles_points
 
         lambda_c = 20
         edges = np.empty([1, 3], order='C')
@@ -708,7 +724,7 @@ def main(obj_path):
         #     f_obj.write(json_str)
 
 if __name__ == '__main__':
-    obj_paths = load_input(input_dir='/input/')
+    obj_paths = load_input(input_dir='./input')
     model_path = './Mesh_Segementation_MeshSegNet_17_classes_60samples_best.tar'
     num_classes = 17
     num_channels = 15
