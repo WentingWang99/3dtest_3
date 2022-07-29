@@ -5,7 +5,7 @@ import torch.nn as nn
 from meshsegnet import *
 from sklearn import neighbors
 import pandas as pd
-#from losses_and_metrics_for_mesh import *
+from losses_and_metrics_for_mesh import *
 from scipy.spatial import distance_matrix
 import scipy.io as sio
 import shutil
@@ -17,8 +17,9 @@ from pygco import cut_from_graph
 import open3d as o3d
 import json
 import glob
-import traceback
-import gc
+import numpy as np
+import matplotlib.pyplot as plt
+import math
 
 
 class NpEncoder(json.JSONEncoder):
@@ -65,7 +66,25 @@ def class_inlier_outlier(label_list, mean_points,cloud, ind, label_index, points
     return label_change
 
 
-
+# 根据离群点计算外径
+def calculate_radius(outlier,num, mean_points):
+    outlier_mean = mean_points[num]
+    outlier_dis = []
+    for j in range(len(outlier)):
+        distance = np.linalg.norm(outlier[j] - outlier_mean, ord=2) # 计算离群点到质心的距离
+        outlier_dis.append(distance)
+    length_0 = len(outlier_dis)
+    length_1 = int(math.sqrt(length_0))
+    plt.figure(figsize=(15,5))
+    nums, bins, patches = plt.hist(outlier_dis)
+    height = []
+    for i in range(len(nums)):
+        height.append(int(nums[i]))
+    height_array = np.array(height)
+    max_index = height_array.argmax()  # 获取直方图最高的高度对应的下标
+    # out_radius = (bins[max_index] + bins[max_index + 1]) / 2
+    out_radius = bins[max_index + 1]
+    return out_radius
 
 
 # 利用knn算法消除离群点
@@ -100,6 +119,8 @@ def remove_outlier(points, labels):
         mean_points.append(tooth_mean)
         # print(mean_points)
 
+    num = 0
+    out_radius = []
     for i in label_list:
         points_array = same_label_points[i]
         # 建立一个o3d的点云对象
@@ -109,16 +130,22 @@ def remove_outlier(points, labels):
 
         # 对label i 对应的点云进行统计离群值去除，找出离群点并显示
         # 统计式离群点移除
-        cl, ind = pcd.remove_statistical_outlier(nb_neighbors=200, std_ratio=2.0)  # cl是选中的点，ind是选中点index
+        cl, ind = pcd.remove_statistical_outlier(nb_neighbors=500, std_ratio=2.0)  # cl是选中的点，ind是选中点index
         # 可视化
         # display_inlier_outlier(pcd, ind)
+
+        # 根据离群点计算外径
+        outlier = np.array(cl.points)
+        radius = calculate_radius(outlier, num, mean_points)
+        out_radius.append(radius)
+        num = num + 1
 
         # 对分出来的离群点重新分类
         label_index = same_label_index[i]
         labels = class_inlier_outlier(label_list, mean_points, pcd, ind, label_index, points, labels)
         # print(f"label_change{labels[4400]}")
 
-    return labels
+    return labels, out_radius, mean_points, same_label_points
 
 
 def write_output(labels, instances, jaw):
@@ -128,16 +155,101 @@ def write_output(labels, instances, jaw):
         'labels': labels,
         'instances': instances
     }
-    os.makedirs('./output/', exist_ok=True)
-    with open('./output/dental-labels.json', 'w') as fp:
+
+    with open('/output/dental-labels.json', 'w') as fp:
         json.dump(pred_output, fp, cls=NpEncoder)
+        fp.close()
 
 
+# 对点云边缘进行平滑处理
+def smooth_edge(points, labels, pre_min, label_point_cloud, label_mean, true_label, radius):
+    # 根据先验小均值得到内径圆
+    inner_radius = pre_min
+    distance = []
+    avg = 0
+    num = 0
+    for i in range(len(label_point_cloud)):
+        dis = np.linalg.norm(label_point_cloud[i] - label_mean, ord = 2)  # 计算label质心到所有点的距离
+        distance.append(dis)
+        avg += dis
+        num += 1
+    min_dis = min(distance)  # 质心到最近点距离
+    out_radius = radius
+    mid_radius = (inner_radius + out_radius)/2
+
+    # 判断内外径大小进行调整
+    if out_radius < inner_radius:
+        inner_radius = min_dis
+
+    # 查询环带内标签数量
+    tooth_num = 0
+    gums_num = 0
+    index_list = []
+    for i in range(len(points)):
+        dis = np.linalg.norm(points[i] - label_mean, ord = 2)
+        if dis >= inner_radius and dis <= out_radius:
+            index = i
+            index_list.append(index)
+            label = labels[index]
+            if label != 0:
+                tooth_num += 1
+            else:
+                gums_num += 1
+    rate = (tooth_num+1)/(gums_num+1) - 1
+    if rate > 0.7:
+        for i in index_list:
+            labels[i] = true_label
+    elif rate < 0.3:
+        for i in index_list:
+            labels[i] = 0
+    else:
+        for i in index_list:
+            dis = np.linalg.norm(points[i] - label_mean, ord = 2)
+            if dis < mid_radius:
+                labels[i] = true_label
+            else:
+                labels[i] = 0
+
+    return labels
+
+
+def smooth(point_cloud_o3d_orign, labels, out_radius, mean_points, same_label_points):
+    points = point_cloud_o3d_orign.copy()
+    list_0 = []
+    for i in range(len(labels)):
+        list_0.append(labels[i])
+    list_0 = list(set(list_0))  # 去重获从小到大排序取GT_label=[0, 11, 12, 13, 14, 15, 16, 17, 21, 22, 23, 24, 25, 26, 27]
+    list_0.sort()
+
+    list_1 = list_0[1:]
+    for i in range(len(list_1)):
+        true_label = list_1[i]
+        radius = out_radius[i]
+        label_mean = mean_points[i]
+        points_array_1 = same_label_points[true_label]
+        pcd_1 = o3d.geometry.PointCloud()
+        pcd_1.points = o3d.utility.Vector3dVector(points_array_1)
+        if (true_label >= 11) and (true_label <= 18):
+            new_label = true_label - 10
+        elif (true_label >= 21) and (true_label <= 28):
+            new_label = true_label - 12
+        elif (true_label >= 31) and (true_label <= 38):
+            new_label = true_label - 30
+        elif (true_label >= 41) and (true_label <= 48):
+            new_label = true_label - 32
+        min = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        # pre_max = max[new_label-1]  # 先验最大
+        pre_min = min[new_label-1]  # 先验最小
+        label_point_cloud = np.array(pcd_1.points)
+        labels = smooth_edge(points, labels, pre_min, label_point_cloud, label_mean, true_label, radius)
+    return labels
 
 # 消除离群点，保存最后的输出
 def remove_outlier_main(jaw, pcd_points, labels, instances_labels):
     points = pcd_points.copy()
-    label = remove_outlier(points, labels)
+    label, out_radius, mean_points, same_label_points = remove_outlier(points, labels)
+    # 平滑边缘
+    label = smooth(points, labels, out_radius, mean_points, same_label_points)
     write_output(label,instances_labels,jaw)
 
     # # 保存json文件
@@ -261,7 +373,7 @@ def voxel_upsample(same_points_list, point_cloud, filtered_points, filter_labels
     Dx = (x_max - x_min) // size_r + 1
     Dy = (y_max - y_min) // size_r + 1
     Dz = (z_max - z_min) // size_r + 1
-    # print("Dx x Dy x Dz is {} x {} x {}".format(Dx, Dy, Dz))
+    print("Dx x Dy x Dz is {} x {} x {}".format(Dx, Dy, Dz))
 
     # step4 计算每个点（采样后的点）在volex grid内每一个维度的值
     h = list()
@@ -449,25 +561,8 @@ def mesh_grid(pcd_points):
     return mesh
 
 
-def get_jaw(scan_path):
-    try:
-        _, jaw = os.path.basename(scan_path).split('.')[0].split('_')
-
-    except:
-        try:
-            with open(scan_path, 'r') as f:
-                jaw = f.readline()[2:-1]
-            if jaw not in ["upper", "lower"]:
-                return None
-        except Exception as e:
-            print(str(e))
-            print(traceback.format_exc())
-            return None
-    return jaw
-
 # 读取obj文件内容
 def read_obj(obj_path):
-    jaw = get_jaw(obj_path)
     with open(obj_path) as file:
         points = []
         faces = []
@@ -480,10 +575,10 @@ def read_obj(obj_path):
                 points.append((float(strs[1]), float(strs[2]), float(strs[3])))
             elif strs[0] == "f":
                 faces.append((int(strs[1]), int(strs[2]), int(strs[3])))
-            # elif strs[1][0:5] == 'lower':
-            #     jaw = 'lower'
-            # elif strs[1][0:5] == 'upper':
-            #     jaw = 'upper'
+            elif strs[1][0:5] == 'lower':
+                jaw = 'lower'
+            elif strs[1][0:5] == 'upper':
+                jaw = 'upper'
 
     points = np.array(points)
     faces = np.array(faces)
@@ -517,14 +612,13 @@ def load_input(input_dir):
     print("scan to process:", inputs)
     return inputs
 
-def main(obj_path):
+def main(obj_path, model_path):
     # obj_path = "./input/3d-teeth-scan.obj"
     # # ground_truth_path = './tooth_ground-truth_labels/0132CR0A/0132CR0A_lower.json'
     # save_path = './output'
-    # gpu_id = utils.get_avail_gpu()
-    # gpu_id = 0
     # upsampling_method = 'SVM'
     upsampling_method = 'KNN'
+
     # mesh_path = './data'  # need to modify
     # sample_filenames = ['0132CR0A_upper.pcd'] # need to modify
 
@@ -534,27 +628,26 @@ def main(obj_path):
     # if not os.path.exists(output_path):
     #     os.mkdir(output_path)
 
-    # num_classes = 17
-    # num_channels = 15
-    #
-    # # set model
-    # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    # model = MeshSegNet(num_classes=num_classes, num_channels=num_channels).to(device, dtype=torch.float)
-    #
-    # # load trained model
-    # # checkpoint = torch.load(os.path.join(model_path, model_name), map_location='cpu')
-    # checkpoint = torch.load(model_path, map_location='cpu')
-    # model.load_state_dict(checkpoint['model_state_dict'])
-    # del checkpoint
-    # model = model.to(device, dtype=torch.float)
-    #
-    # # cudnn
-    # torch.backends.cudnn.benchmark = True
-    # torch.backends.cudnn.enabled = True
+    num_classes = 17
+    num_channels = 15
+
+    # set model
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = MeshSegNet(num_classes=num_classes, num_channels=num_channels).to(device, dtype=torch.float)
+
+    # load trained model
+    # checkpoint = torch.load(os.path.join(model_path, model_name), map_location='cpu')
+    checkpoint = torch.load(model_path, map_location='cpu')
+    model.load_state_dict(checkpoint['model_state_dict'])
+    del checkpoint
+    model = model.to(device, dtype=torch.float)
+
+    # cudnn
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.enabled = True
 
     # Predicting
-
-    torch.cuda.empty_cache()
+    model.eval()
     with torch.no_grad():
         pcd_points, jaw = obj2pcd(obj_path)
         mesh = mesh_grid(pcd_points)
@@ -564,12 +657,11 @@ def main(obj_path):
 
         vertices_points = np.asarray(mesh.vertices)
         triangles_points = np.asarray(mesh.triangles)
-        # N = triangles_points.shape[0]
-        # cells = np.zeros((triangles_points.shape[0], 9))
+        N = triangles_points.shape[0]
+        cells = np.zeros((triangles_points.shape[0], 9))
         cells = vertices_points[triangles_points].reshape(triangles_points.shape[0], 9)
 
         mean_cell_centers = mesh.get_center()
-        del mesh
         cells[:, 0:3] -= mean_cell_centers[0:3]
         cells[:, 3:6] -= mean_cell_centers[0:3]
         cells[:, 6:9] -= mean_cell_centers[0:3]
@@ -583,9 +675,6 @@ def main(obj_path):
         v2[:, 1] = cells[:, 4] - cells[:, 7]
         v2[:, 2] = cells[:, 5] - cells[:, 8]
         mesh_normals = np.cross(v1, v2)
-
-        del v1
-        del v2
         mesh_normal_length = np.linalg.norm(mesh_normals, axis=1)
         mesh_normals[:, 0] /= mesh_normal_length[:]
         mesh_normals[:, 1] /= mesh_normal_length[:]
@@ -596,16 +685,12 @@ def main(obj_path):
         points = vertices_points.copy()
         points[:, 0:3] -= mean_cell_centers[0:3]
         normals = np.nan_to_num(mesh_normals).copy()
-        del mesh_normals
         barycenters = np.zeros((triangles_points.shape[0], 3))
         s = np.sum(vertices_points[triangles_points], 1)
-        del vertices_points
         barycenters = 1 / 3 * s
-        del s
         center_points = barycenters.copy()
         # np.save(os.path.join(output_path, name + '.npy'), barycenters)
         barycenters -= mean_cell_centers[0:3]
-        del mean_cell_centers
 
         # normalized data
         maxs = points.max(axis=0)
@@ -614,7 +699,6 @@ def main(obj_path):
         stds = points.std(axis=0)
         nmeans = normals.mean(axis=0)
         nstds = normals.std(axis=0)
-        del points
 
         for i in range(3):
             cells[:, i] = (cells[:, i] - means[i]) / stds[i]  # point 1
@@ -623,33 +707,17 @@ def main(obj_path):
             barycenters[:, i] = (barycenters[:, i] - mins[i]) / (maxs[i] - mins[i])
             normals[:, i] = (normals[:, i] - nmeans[i]) / nstds[i]
 
-        del maxs
-        del mins
-        del means
-        del stds
-        del nmeans
-        del nstds
-
         X = np.column_stack((cells, barycenters, normals))
 
         # computing A_S and A_L
-        A_S = np.zeros([X.shape[0], X.shape[0]], dtype='float16')
-        A_L = np.zeros([X.shape[0], X.shape[0]], dtype='float16')
+        A_S = np.zeros([X.shape[0], X.shape[0]], dtype='float32')
+        A_L = np.zeros([X.shape[0], X.shape[0]], dtype='float32')
         D = distance_matrix(X[:, 9:12], X[:, 9:12])
-
         A_S[D < 0.1] = 1.0
+        A_S = A_S / np.dot(np.sum(A_S, axis=1, keepdims=True), np.ones((1, X.shape[0])))
+
         A_L[D < 0.2] = 1.0
-        del D
-        # for i in range(0, D.shape[0]):
-        #     for j in range(0,D.shape[1]):
-        #         if(D[,j] < 0.1):
-        #             A_S[i,j] = 1.0
-        #A_S = A_S / np.dot(np.sum(A_S, axis=1, keepdims=True), np.ones((1, X.shape[0])))
-        A_S = np.divide(A_S, np.tile(np.sum(A_S, axis=1, keepdims=True), X.shape[0]))
-
-
-        #A_L = A_L / np.dot(np.sum(A_L, axis=1, keepdims=True), np.ones((1, X.shape[0])))
-        A_L = np.divide(A_L, np.tile(np.sum(A_L, axis=1, keepdims=True), X.shape[0]))
+        A_L = A_L / np.dot(np.sum(A_L, axis=1, keepdims=True), np.ones((1, X.shape[0])))
 
         # numpy -> torch.tensor
         X = X.transpose(1, 0)
@@ -661,11 +729,7 @@ def main(obj_path):
         A_L = torch.from_numpy(A_L).to(device, dtype=torch.float)
 
         tensor_prob_output = model(X, A_S, A_L).to(device, dtype=torch.float)
-        del A_L
-        del A_S
-        del X
         patch_prob_output = tensor_prob_output.cpu().numpy()
-        torch.cuda.empty_cache()
 
         # refinement
         print('\tRefining by pygco...')
@@ -674,7 +738,6 @@ def main(obj_path):
 
         # unaries
         unaries = -round_factor * np.log10(patch_prob_output)
-        del patch_prob_output
         unaries = unaries.astype(np.int32)
         unaries = unaries.reshape(-1, num_classes)
 
@@ -684,7 +747,6 @@ def main(obj_path):
         cells = cells.copy()
 
         cell_ids = np.asarray(triangles_points)
-        del triangles_points
 
         lambda_c = 20
         edges = np.empty([1, 3], order='C')
@@ -723,25 +785,6 @@ def main(obj_path):
         #     f_obj.write(json_str)
 
 if __name__ == '__main__':
-    obj_paths = load_input(input_dir='./input')
+    obj_path = load_input(input_dir='/input')[0]
     model_path = './Mesh_Segementation_MeshSegNet_17_classes_60samples_best.tar'
-    num_classes = 17
-    num_channels = 15
-
-    # set model
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = MeshSegNet(num_classes=num_classes, num_channels=num_channels).to(device, dtype=torch.float)
-
-    # load trained model
-    # checkpoint = torch.load(os.path.join(model_path, model_name), map_location='cpu')
-    checkpoint = torch.load(model_path, map_location='cpu')
-    model.load_state_dict(checkpoint['model_state_dict'])
-    del checkpoint
-    model = model.to(device, dtype=torch.float)
-
-    # cudnn
-    torch.backends.cudnn.benchmark = True
-    torch.backends.cudnn.enabled = True
-    model.eval()
-    for obj_path in obj_paths:
-        main(obj_path)
+    main(obj_path, model_path)
