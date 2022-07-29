@@ -20,16 +20,20 @@ RUN chown algorithm:algorithm /output
 WORKDIR /opt/algorithm
 
 
-RUN  python -m pip install Cython -i https://pypi.tuna.tsinghua.edu.cn/simple
-RUN  python -m pip install pygco -i https://pypi.tuna.tsinghua.edu.cn/simple
+#RUN  python -m pip install Cython -i https://pypi.tuna.tsinghua.edu.cn/simple
+RUN  python -m pip install Cython
+#RUN  python -m pip install pygco -i https://pypi.tuna.tsinghua.edu.cn/simple
+RUN  python -m pip install pygco
 
 ENV PATH="/home/algorithm/.local/bin:${PATH}"
 
-RUN python -m pip install --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple
+#RUN python -m pip install --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple
+RUN python -m pip install --upgrade pip
 
 
 COPY --chown=algorithm:algorithm requirements.txt /opt/algorithm/requirements.txt
-RUN python -m pip install --default-timeout=5000 -rrequirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --ignore-installed
+#RUN python -m pip install --default-timeout=5000 -rrequirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --ignore-installed
+RUN python -m pip install --default-timeout=5000 -rrequirements.txt
 
 
 COPY --chown=algorithm:algorithm ./process.py /opt/algorithm/process.py
