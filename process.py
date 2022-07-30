@@ -129,7 +129,7 @@ def write_output(labels, instances, jaw):
         'instances': instances
     }
     #os.makedirs('/output/', exist_ok=True)
-    with open('./output/dental-labels.json', 'w') as fp:
+    with open('/output/dental-labels.json', 'w') as fp:
         json.dump(pred_output, fp, cls=NpEncoder)
 
 
@@ -724,7 +724,7 @@ def main(obj_path):
         #     f_obj.write(json_str)
 
 if __name__ == '__main__':
-    obj_paths = load_input(input_dir='./input/')
+    obj_paths = load_input(input_dir='/input/')
     model_path = './Mesh_Segementation_MeshSegNet_17_classes_60samples_best.tar'
     num_classes = 17
     num_channels = 15
