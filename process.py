@@ -129,9 +129,9 @@ def write_output(labels, instances, jaw):
         'instances': instances
     }
     #os.makedirs('/output/', exist_ok=True)
-    with open('./output', 'w') as fp:
+    with open('./output/dental-labels.json', 'w') as fp:
         json.dump(pred_output, fp, cls=NpEncoder)
-    fp.close()
+
 
 
 
